@@ -34,7 +34,7 @@ logging.basicConfig(
 
 class CookieBasedNaukriUploader:
     def __init__(self):
-        self.resume_path = os.getenv('RESUME_PATH', './resume/resume.pdf')
+        self.resume_path = os.getenv('RESUME_PATH', './resume/Nikhil_Saini_Resume.pdf')
         self.driver = None
         self.cookies_file = './cookies/naukri_cookies.pkl'
         self.cookies_b64 = os.getenv('NAUKRI_COOKIES_B64')

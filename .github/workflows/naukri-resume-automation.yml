@@ -105,8 +105,8 @@ jobs:
         
     - name: 📄 Verify resume file
       run: |
-        if [ -f "resume/resume.pdf" ]; then
-          echo "✅ Resume file found: $(ls -lh resume/resume.pdf)"
+        if [ -f "resume/Nikhil_Saini_Resume.pdf" ]; then
+          echo "✅ Resume file found: $(ls -lh resume/Nikhil_Saini_Resume.pdf)"
         else
           echo "❌ Resume file not found!"
           echo "Available files:"
@@ -117,7 +117,7 @@ jobs:
     - name: 🚀 Run Naukri automation
       env:
         NAUKRI_COOKIES_B64: ${{ secrets.NAUKRI_COOKIES_B64 }}
-        RESUME_PATH: './resume/resume.pdf'
+        RESUME_PATH: './resume/Nikhil_Saini_Resume.pdf'
         MODE: 'automation'
         TEST_MODE: ${{ github.event.inputs.test_mode }}
       run: |

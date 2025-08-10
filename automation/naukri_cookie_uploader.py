@@ -46,167 +46,168 @@ class StealthNaukriUploader:
         os.makedirs("./logs", exist_ok=True)
 
     def setup_stealth_driver(self):
-        """Setup maximum stealth browser with better compatibility"""
+        """Setup maximum stealth browser with better version compatibility"""
         driver_initialized = False
         
         # Generate unique user data dir to avoid conflicts
         import tempfile
         user_data_dir = tempfile.mkdtemp(prefix="chrome_profile_")
         
-        if self.use_undetected:
+        # Try multiple approaches in order of preference
+        approaches = [
+            ("undetected_chrome", "Undetected ChromeDriver"),
+            ("regular_chrome", "Regular Chrome with stealth"),
+            ("minimal_chrome", "Minimal Chrome setup"),
+            ("basic_chrome", "Basic Chrome (last resort)")
+        ]
+        
+        for approach_name, approach_desc in approaches:
+            if driver_initialized:
+                break
+                
             try:
-                logging.info("Attempting undetected Chrome setup...")
+                logging.info(f"Attempting {approach_desc}...")
                 
-                # Simplified options for better compatibility
-                options = uc.ChromeOptions()
+                if approach_name == "undetected_chrome" and self.use_undetected:
+                    # Undetected Chrome approach
+                    options = uc.ChromeOptions()
+                    
+                    # Essential options only
+                    options.add_argument("--no-sandbox")
+                    options.add_argument("--disable-dev-shm-usage")
+                    options.add_argument("--disable-gpu")
+                    options.add_argument("--headless")
+                    options.add_argument("--window-size=1366,768")
+                    options.add_argument(f"--user-data-dir={user_data_dir}_uc")
+                    options.add_argument("--remote-debugging-port=9223")
+                    
+                    # Basic stealth
+                    options.add_argument("--disable-blink-features=AutomationControlled")
+                    options.add_argument("--disable-web-security")
+                    options.add_argument("--disable-extensions")
+                    
+                    # Try without version specification first
+                    try:
+                        self.driver = uc.Chrome(options=options, version_main=None)
+                        logging.info("✅ Undetected Chrome without version check")
+                        driver_initialized = True
+                    except Exception as e1:
+                        logging.warning(f"Undetected Chrome without version failed: {e1}")
+                        # Try with version auto-detection
+                        try:
+                            self.driver = uc.Chrome(options=options)
+                            logging.info("✅ Undetected Chrome with auto-detection")
+                            driver_initialized = True
+                        except Exception as e2:
+                            logging.warning(f"Undetected Chrome with auto-detection failed: {e2}")
+                            raise e2
+                    
+                elif approach_name == "regular_chrome":
+                    # Regular Chrome with maximum compatibility
+                    options = Options()
+                    
+                    # Essential CI options
+                    options.add_argument("--no-sandbox")
+                    options.add_argument("--disable-dev-shm-usage")
+                    options.add_argument("--disable-gpu")
+                    options.add_argument("--headless")
+                    options.add_argument("--window-size=1366,768")
+                    options.add_argument(f"--user-data-dir={user_data_dir}_reg")
+                    options.add_argument("--remote-debugging-port=9224")
+                    
+                    # Compatibility options
+                    options.add_argument("--disable-blink-features=AutomationControlled")
+                    options.add_argument("--disable-web-security")
+                    options.add_argument("--disable-features=VizDisplayCompositor")
+                    options.add_argument("--disable-extensions")
+                    options.add_argument("--disable-plugins")
+                    options.add_argument("--disable-default-apps")
+                    options.add_argument("--disable-background-timer-throttling")
+                    options.add_argument("--disable-backgrounding-occluded-windows")
+                    options.add_argument("--disable-renderer-backgrounding")
+                    options.add_argument("--disable-ipc-flooding-protection")
+                    
+                    # User agent
+                    options.add_argument(
+                        "--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                    )
+                    
+                    # Try adding experimental options safely
+                    try:
+                        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+                        options.add_experimental_option('useAutomationExtension', False)
+                    except Exception:
+                        logging.warning("Could not add experimental options, continuing without them")
+                    
+                    self.driver = webdriver.Chrome(options=options)
+                    logging.info("✅ Regular Chrome initialized")
+                    driver_initialized = True
+                    
+                elif approach_name == "minimal_chrome":
+                    # Minimal Chrome setup
+                    options = Options()
+                    options.add_argument("--no-sandbox")
+                    options.add_argument("--disable-dev-shm-usage")
+                    options.add_argument("--headless")
+                    options.add_argument("--disable-gpu")
+                    options.add_argument(f"--user-data-dir={user_data_dir}_min")
+                    options.add_argument("--remote-debugging-port=9225")
+                    options.add_argument("--single-process")  # Sometimes helps with compatibility
+                    
+                    self.driver = webdriver.Chrome(options=options)
+                    logging.info("✅ Minimal Chrome initialized")
+                    driver_initialized = True
+                    
+                elif approach_name == "basic_chrome":
+                    # Last resort - basic Chrome
+                    options = Options()
+                    options.add_argument("--headless")
+                    options.add_argument("--no-sandbox")
+                    options.add_argument(f"--user-data-dir={user_data_dir}_basic")
+                    
+                    self.driver = webdriver.Chrome(options=options)
+                    logging.info("✅ Basic Chrome initialized")
+                    driver_initialized = True
                 
-                # Essential CI/CD options
-                options.add_argument("--no-sandbox")
-                options.add_argument("--disable-dev-shm-usage")
-                options.add_argument("--disable-gpu")
-                options.add_argument("--headless")  # Always headless in CI
-                options.add_argument("--window-size=1366,768")
-                options.add_argument(f"--user-data-dir={user_data_dir}")
-                
-                # Basic stealth (avoid problematic options)
-                options.add_argument("--disable-blink-features=AutomationControlled")
-                options.add_argument("--disable-web-security")
-                options.add_argument("--disable-extensions")
-                options.add_argument("--disable-plugins")
-                options.add_argument("--disable-default-apps")
-                
-                # Simple user agent
-                options.add_argument(
-                    "--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                )
-                
-                # Initialize with minimal options
-                self.driver = uc.Chrome(options=options, version_main=None)
-                
-                # Execute basic stealth scripts
-                stealth_js = """
-                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-                """
-                self.driver.execute_script(stealth_js)
-                
-                logging.info("✅ Undetected Chrome driver initialized successfully")
-                driver_initialized = True
-                
+                # If we got here, initialization succeeded
+                if driver_initialized:
+                    # Execute stealth scripts if possible
+                    try:
+                        stealth_js = """
+                        Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                        Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+                        Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+                        """
+                        self.driver.execute_script(stealth_js)
+                        logging.info("✅ Stealth scripts executed")
+                    except Exception as js_error:
+                        logging.warning(f"Stealth JS execution failed: {js_error}")
+                    
+                    break
+                    
             except Exception as e:
-                logging.error(f"Undetected Chrome failed: {str(e)}")
-                logging.info("Falling back to regular Chrome...")
-                self.use_undetected = False
-                
+                logging.error(f"{approach_desc} failed: {str(e)}")
                 # Clean up failed attempt
                 try:
                     if hasattr(self, 'driver') and self.driver:
                         self.driver.quit()
+                        self.driver = None
                 except:
                     pass
-        
-        if not driver_initialized:
-            try:
-                logging.info("Setting up regular Chrome with stealth...")
-                
-                # Create a new user data dir for regular Chrome
-                user_data_dir_regular = tempfile.mkdtemp(prefix="chrome_regular_")
-                
-                options = Options()
-                
-                # Essential options for GitHub Actions
-                options.add_argument("--no-sandbox")
-                options.add_argument("--disable-dev-shm-usage")
-                options.add_argument("--disable-gpu")
-                options.add_argument("--headless")
-                options.add_argument("--window-size=1366,768")
-                options.add_argument(f"--user-data-dir={user_data_dir_regular}")
-                options.add_argument("--remote-debugging-port=9222")
-                
-                # Stealth options (compatible versions)
-                options.add_argument("--disable-blink-features=AutomationControlled")
-                options.add_argument("--disable-web-security")
-                options.add_argument("--disable-features=VizDisplayCompositor")
-                options.add_argument("--disable-extensions")
-                options.add_argument("--disable-plugins")
-                options.add_argument("--disable-default-apps")
-                options.add_argument("--disable-background-timer-throttling")
-                options.add_argument("--disable-backgrounding-occluded-windows")
-                options.add_argument("--disable-renderer-backgrounding")
-                
-                # User agent for Linux
-                options.add_argument(
-                    "--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                )
-                
-                # Add experimental options carefully
-                try:
-                    options.add_experimental_option("excludeSwitches", ["enable-automation"])
-                    options.add_experimental_option('useAutomationExtension', False)
-                except Exception as exp_error:
-                    logging.warning(f"Could not add experimental options: {exp_error}")
-                
-                # Preferences
-                prefs = {
-                    "profile.default_content_setting_values.notifications": 2,
-                    "profile.default_content_settings.popups": 0,
-                    "profile.managed_default_content_settings.images": 1
-                }
-                try:
-                    options.add_experimental_option("prefs", prefs)
-                except Exception as pref_error:
-                    logging.warning(f"Could not add preferences: {pref_error}")
-                
-                # Initialize Chrome
-                self.driver = webdriver.Chrome(options=options)
-                
-                # Execute stealth scripts
-                stealth_js = """
-                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-                Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
-                Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
-                window.chrome = {runtime: {}};
-                """
-                try:
-                    self.driver.execute_script(stealth_js)
-                except Exception as js_error:
-                    logging.warning(f"Stealth JS execution failed: {js_error}")
-                
-                logging.info("✅ Regular Chrome driver initialized successfully")
-                driver_initialized = True
-                
-            except Exception as e:
-                logging.error(f"Regular Chrome failed: {str(e)}")
-                
-                # Try minimal Chrome as last resort
-                try:
-                    logging.info("Trying minimal Chrome setup...")
-                    minimal_options = Options()
-                    minimal_options.add_argument("--no-sandbox")
-                    minimal_options.add_argument("--disable-dev-shm-usage")
-                    minimal_options.add_argument("--headless")
-                    minimal_options.add_argument(f"--user-data-dir={tempfile.mkdtemp()}")
-                    
-                    self.driver = webdriver.Chrome(options=minimal_options)
-                    logging.info("✅ Minimal Chrome driver initialized")
-                    driver_initialized = True
-                    
-                except Exception as minimal_error:
-                    logging.error(f"Minimal Chrome also failed: {minimal_error}")
-                    raise Exception("All Chrome initialization methods failed")
+                continue
 
         if not driver_initialized:
-            raise Exception("Driver initialization failed")
+            raise Exception("All Chrome initialization methods failed")
             
-        # Set timeouts
+        # Set timeouts with error handling
         try:
-            self.driver.set_page_load_timeout(60)  # Increased timeout for CI
-            self.driver.implicitly_wait(10)  # Increased implicit wait
+            self.driver.set_page_load_timeout(60)
+            self.driver.implicitly_wait(10)
         except Exception as timeout_error:
             logging.warning(f"Could not set timeouts: {timeout_error}")
         
-        logging.info("🚗 Chrome driver setup completed successfully")
+        logging.info(f"🚗 Chrome driver setup completed successfully using {approach_desc}")
 
     def human_like_delay(self, min_delay=1, max_delay=3):
         """Add human-like delays"""

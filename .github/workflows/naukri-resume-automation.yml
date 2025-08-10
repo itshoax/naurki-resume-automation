@@ -95,11 +95,10 @@ jobs:
       run: |
         if [ ! -z "${{ secrets.NAUKRI_COOKIES_B64 }}" ]; then
           echo "Cookies secret found, decoding..."
-          echo "${{ secrets.NAUKRI_COOKIES_B64 }}" | base64 -d > cookies/naukri_cookies.pkl
+          echo "${{ secrets.NAUKRI_COOKIES_B64 }}" | base64 -d > cookies/naukri_cookies.json
           echo "Cookies decoded successfully"
         else
           echo "❌ No cookies found in secrets!"
-          echo "Please run cookie extraction first and add NAUKRI_COOKIES_B64 secret"
           exit 1
         fi
         

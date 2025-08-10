@@ -20,10 +20,10 @@ from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.common.action_chains import ActionChains
 
-# Force use of undetected-chromedriver for stealth
-USE_UNDETECTED = True
+# Check for undetected-chromedriver availability
 try:
     import undetected_chromedriver as uc
+    USE_UNDETECTED = True
     logging.info("✅ Undetected ChromeDriver available")
 except ImportError:
     USE_UNDETECTED = False
@@ -40,13 +40,16 @@ class StealthNaukriUploader:
         self.driver = None
         self.cookies_file = "./cookies/naukri_cookies.json"
         self.cookies_b64 = os.getenv("NAUKRI_COOKIES_B64")
+        self.use_undetected = USE_UNDETECTED  # Store as instance variable
 
         os.makedirs("./cookies", exist_ok=True)
         os.makedirs("./logs", exist_ok=True)
 
     def setup_stealth_driver(self):
         """Setup maximum stealth browser"""
-        if USE_UNDETECTED:
+        driver_initialized = False
+        
+        if self.use_undetected:
             try:
                 # Undetected ChromeDriver with maximum stealth
                 options = uc.ChromeOptions()
@@ -109,43 +112,54 @@ class StealthNaukriUploader:
                 self.driver.execute_script(stealth_js)
                 
                 logging.info("✅ Stealth Undetected Chrome driver initialized")
+                driver_initialized = True
                 
             except Exception as e:
                 logging.error(f"Failed to initialize Undetected Chrome: {e}")
-                USE_UNDETECTED = False
+                logging.info("Falling back to regular Chrome...")
+                self.use_undetected = False
         
-        if not USE_UNDETECTED:
+        if not driver_initialized:
             # Fallback to regular Chrome with maximum stealth
-            options = Options()
-            options.add_argument("--no-sandbox")
-            options.add_argument("--disable-dev-shm-usage")
-            options.add_argument("--disable-gpu")
-            options.add_argument("--window-size=1366,768")
-            
-            # Maximum stealth for regular Chrome
-            options.add_argument("--disable-blink-features=AutomationControlled")
-            options.add_experimental_option("excludeSwitches", ["enable-automation"])
-            options.add_experimental_option('useAutomationExtension', False)
-            options.add_argument("--disable-web-security")
-            options.add_argument("--disable-features=VizDisplayCompositor")
-            options.add_argument(
-                "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            )
-            
-            self.driver = webdriver.Chrome(options=options)
-            
-            # Execute stealth scripts for regular Chrome
-            stealth_js = """
-            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-            Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
-            Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
-            window.chrome = {runtime: {}};
-            """
-            self.driver.execute_script(stealth_js)
-            
-            logging.info("✅ Stealth regular Chrome driver initialized")
+            try:
+                options = Options()
+                options.add_argument("--no-sandbox")
+                options.add_argument("--disable-dev-shm-usage")
+                options.add_argument("--disable-gpu")
+                options.add_argument("--window-size=1366,768")
+                
+                # Maximum stealth for regular Chrome
+                options.add_argument("--disable-blink-features=AutomationControlled")
+                options.add_experimental_option("excludeSwitches", ["enable-automation"])
+                options.add_experimental_option('useAutomationExtension', False)
+                options.add_argument("--disable-web-security")
+                options.add_argument("--disable-features=VizDisplayCompositor")
+                options.add_argument(
+                    "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                )
+                
+                self.driver = webdriver.Chrome(options=options)
+                
+                # Execute stealth scripts for regular Chrome
+                stealth_js = """
+                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+                Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+                window.chrome = {runtime: {}};
+                """
+                self.driver.execute_script(stealth_js)
+                
+                logging.info("✅ Stealth regular Chrome driver initialized")
+                driver_initialized = True
+                
+            except Exception as e:
+                logging.error(f"Failed to initialize regular Chrome: {e}")
+                raise Exception("Could not initialize any Chrome driver")
 
+        if not driver_initialized:
+            raise Exception("Driver initialization failed")
+            
         self.driver.set_page_load_timeout(30)
         self.driver.implicitly_wait(5)
 

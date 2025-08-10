@@ -45,6 +45,7 @@ class CookieBasedNaukriUploader:
         
     def setup_driver(self):
         """Setup Chrome driver optimized for cookie-based auth"""
+        global UNDETECTED_AVAILABLE
         if UNDETECTED_AVAILABLE:
             try:
                 options = uc.ChromeOptions()

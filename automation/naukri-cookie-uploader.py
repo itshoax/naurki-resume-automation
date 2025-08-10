@@ -45,38 +45,55 @@ class CookieBasedNaukriUploader:
     def setup_driver(self):
         """Setup Chrome driver optimized for cookie-based auth"""
         if UNDETECTED_AVAILABLE:
-            options = uc.ChromeOptions()
-            options.add_argument("--headless=new")  # Use new headless mode
-        else:
+            try:
+                options = uc.ChromeOptions()
+                options.add_argument("--headless=new")  # Use new headless mode
+                options.add_argument("--no-sandbox")
+                options.add_argument("--disable-dev-shm-usage")
+                options.add_argument("--disable-gpu")
+                options.add_argument("--window-size=1920,1080")
+                
+                # Let undetected-chromedriver handle the ChromeDriver automatically
+                self.driver = uc.Chrome(options=options, version_main=None, driver_executable_path=None)
+                logging.info("Undetected Chrome driver initialized")
+                
+            except Exception as e:
+                logging.warning(f"Undetected Chrome failed: {e}, falling back to regular Chrome")
+                UNDETECTED_AVAILABLE = False
+        
+        if not UNDETECTED_AVAILABLE:
             options = Options()
             options.add_argument("--headless=new")
+            options.add_argument("--no-sandbox")
+            options.add_argument("--disable-dev-shm-usage")
+            options.add_argument("--disable-gpu")
+            options.add_argument("--window-size=1920,1080")
+            options.add_argument("--disable-blink-features=AutomationControlled")
+            options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
             
-        # Common options for both drivers
-        options.add_argument("--no-sandbox")
-        options.add_argument("--disable-dev-shm-usage")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--window-size=1920,1080")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-        
-        # Performance optimizations
-        options.add_argument("--disable-extensions")
-        options.add_argument("--disable-plugins")
-        options.add_argument("--disable-images")
-        
-        if UNDETECTED_AVAILABLE:
-            self.driver = uc.Chrome(options=options, version_main=None)
-            logging.info("Undetected Chrome driver initialized")
-        else:
-            service = Service('/usr/local/bin/chromedriver')
-            self.driver = webdriver.Chrome(service=service, options=options)
+            # Try to find ChromeDriver
+            chromedriver_paths = [
+                '/usr/local/bin/chromedriver',
+                '/usr/bin/chromedriver',
+                './chromedriver'
+            ]
+            
+            chromedriver_path = None
+            for path in chromedriver_paths:
+                if os.path.exists(path):
+                    chromedriver_path = path
+                    break
+            
+            if chromedriver_path:
+                service = Service(chromedriver_path)
+                self.driver = webdriver.Chrome(service=service, options=options)
+            else:
+                # Let Selenium auto-download ChromeDriver
+                self.driver = webdriver.Chrome(options=options)
             
             # Remove automation indicators
             self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-            self.driver.execute_cdp_cmd('Network.setUserAgentOverride', {
-                "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            })
-            logging.info("Regular Chrome driver initialized with stealth options")
+            logging.info("Regular Chrome driver initialized")
         
         self.driver.set_page_load_timeout(30)
         

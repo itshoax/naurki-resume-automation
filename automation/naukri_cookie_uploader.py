@@ -171,34 +171,30 @@ class CookieBasedNaukriUploader:
         return False
 
     def _strategy_attach_cv(self):
-        """Strategy: Trigger dummy button and send file to #attachCV"""
+        """Strategy: Force-unhide #attachCV and upload directly."""
         try:
             self.driver.get("https://www.naukri.com/mnjuser/profile")
 
-            # Wait for dummy upload button and click it (activates the file input)
-            try:
-                dummy_btn = WebDriverWait(self.driver, 10).until(
-                    EC.element_to_be_clickable((By.CSS_SELECTOR, "input.dummyUpload"))
-                )
-                dummy_btn.click()
-                logging.info("Clicked dummyUpload button to activate file input")
-            except TimeoutException:
-                logging.warning("dummyUpload button not found or not clickable")
-
-            # Wait for the file input to be ready
-            file_input = WebDriverWait(self.driver, 10).until(
+            # Wait for #attachCV to be in DOM
+            file_input = WebDriverWait(self.driver, 15).until(
                 EC.presence_of_element_located((By.ID, "attachCV"))
             )
 
-            # Ensure it's interactable
-            WebDriverWait(self.driver, 10).until(
-                EC.element_to_be_clickable((By.ID, "attachCV"))
-            )
+            # Unhide the element via JavaScript if hidden
+            self.driver.execute_script("""
+                var input = arguments[0];
+                input.style.display = 'block';
+                input.style.visibility = 'visible';
+                input.style.opacity = 1;
+                input.style.height = 'auto';
+                input.style.width = 'auto';
+            """, file_input)
 
+            # Now send the file
             file_input.send_keys(os.path.abspath(self.resume_path))
-            logging.info("Sent resume file to #attachCV")
+            logging.info("Sent resume file to #attachCV (forced visible)")
 
-            # Wait for upload result
+            # Wait for confirmation
             try:
                 WebDriverWait(self.driver, 15).until(
                     EC.presence_of_element_located((By.ID, "results_resumeParser"))

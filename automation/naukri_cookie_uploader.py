@@ -156,18 +156,44 @@ class CookieBasedNaukriUploader:
 
     def upload_resume(self):
         strategies = [
+            self._strategy_attach_cv,       # New dedicated strategy
             self._strategy_profile_upload,
             self._strategy_resume_section,
             self._strategy_quick_update
         ]
         for i, strategy in enumerate(strategies, 1):
             try:
-                logging.info(f"Trying upload strategy {i}")
+                logging.info(f"Trying upload strategy {i}: {strategy.__name__}")
                 if strategy():
                     return True
             except Exception as e:
-                logging.error(f"Strategy {i} failed: {e}")
+                logging.error(f"Strategy {i} ({strategy.__name__}) failed: {e}")
         return False
+
+    def _strategy_attach_cv(self):
+        """Strategy: Directly send file to #attachCV input"""
+        try:
+            self.driver.get("https://www.naukri.com/mnjuser/profile")
+            WebDriverWait(self.driver, 15).until(
+                EC.presence_of_element_located((By.ID, "attachCV"))
+            )
+            file_input = self.driver.find_element(By.ID, "attachCV")
+            file_input.send_keys(os.path.abspath(self.resume_path))
+            logging.info("Sent resume file to #attachCV")
+
+            # Wait for some upload result/confirmation
+            try:
+                WebDriverWait(self.driver, 15).until(
+                    EC.presence_of_element_located((By.ID, "results_resumeParser"))
+                )
+                logging.info("Resume upload confirmed via #results_resumeParser")
+            except TimeoutException:
+                logging.warning("No explicit upload confirmation found, proceeding anyway")
+
+            return True
+        except Exception as e:
+            logging.error(f"#attachCV upload failed: {e}")
+            return False
 
     def _strategy_profile_upload(self):
         self.driver.get("https://www.naukri.com/mnjuser/profile")

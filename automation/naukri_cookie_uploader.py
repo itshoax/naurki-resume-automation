@@ -171,28 +171,24 @@ class CookieBasedNaukriUploader:
         return False
 
     def _strategy_attach_cv(self):
-        """Strategy: Force-unhide #attachCV and upload directly."""
+        """Strategy: Click Update resume to trigger file input, then upload."""
         try:
             self.driver.get("https://www.naukri.com/mnjuser/profile")
 
-            # Wait for #attachCV to be in DOM
-            file_input = WebDriverWait(self.driver, 15).until(
-                EC.presence_of_element_located((By.ID, "attachCV"))
+            # Click the visible Update resume button
+            update_btn = WebDriverWait(self.driver, 10).until(
+                EC.element_to_be_clickable((By.CSS_SELECTOR, "input.dummyUpload"))
+            )
+            update_btn.click()
+            logging.info("Clicked Update resume button")
+
+            # After clicking, a new file input may appear anywhere
+            file_input = WebDriverWait(self.driver, 10).until(
+                EC.presence_of_element_located((By.XPATH, "//input[@type='file' and not(@disabled)]"))
             )
 
-            # Unhide the element via JavaScript if hidden
-            self.driver.execute_script("""
-                var input = arguments[0];
-                input.style.display = 'block';
-                input.style.visibility = 'visible';
-                input.style.opacity = 1;
-                input.style.height = 'auto';
-                input.style.width = 'auto';
-            """, file_input)
-
-            # Now send the file
             file_input.send_keys(os.path.abspath(self.resume_path))
-            logging.info("Sent resume file to #attachCV (forced visible)")
+            logging.info("Sent resume file to triggered file input")
 
             # Wait for confirmation
             try:
@@ -201,11 +197,11 @@ class CookieBasedNaukriUploader:
                 )
                 logging.info("Resume upload confirmed via #results_resumeParser")
             except TimeoutException:
-                logging.warning("No explicit upload confirmation found, proceeding anyway")
+                logging.warning("No explicit confirmation found")
 
             return True
         except Exception as e:
-            logging.error(f"#attachCV upload failed: {e}")
+            logging.error(f"Triggered file input upload failed: {e}")
             return False
 
     def _strategy_profile_upload(self):

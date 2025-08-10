@@ -23,7 +23,7 @@ on:
 jobs:
   upload-resume:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     
     steps:
     - name: 🛎️ Checkout repository
@@ -40,56 +40,100 @@ jobs:
         pip install --upgrade pip
         pip install selenium undetected-chromedriver requests python-dotenv
         
-    - name: 🌐 Install Chrome and ChromeDriver
+    - name: 🌐 Setup Chrome and ChromeDriver (Improved)
       run: |
-        # Install Google Chrome
+        # Update system
+        sudo apt-get update
+        
+        # Install dependencies
+        sudo apt-get install -y wget curl unzip xvfb
+        
+        # Remove any existing Chrome
+        sudo apt-get purge -y google-chrome-stable || true
+        
+        # Install Google Chrome Stable
         wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
         sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list'
         sudo apt-get update
         sudo apt-get install -y google-chrome-stable
         
-        # Get Chrome version
-        CHROME_VERSION=$(google-chrome --version | cut -d ' ' -f3)
+        # Get installed Chrome version
+        CHROME_VERSION=$(google-chrome --version | grep -oP '\d+\.\d+\.\d+')
+        CHROME_MAJOR=$(echo $CHROME_VERSION | cut -d. -f1)
         echo "Chrome version: $CHROME_VERSION"
+        echo "Chrome major: $CHROME_MAJOR"
         
-        # Install ChromeDriver using new Chrome for Testing endpoints
-        CHROME_MAJOR_VERSION=$(echo $CHROME_VERSION | cut -d '.' -f1)
-        echo "Chrome major version: $CHROME_MAJOR_VERSION"
+        # Install matching ChromeDriver
+        # Try Chrome for Testing API first (newer versions)
+        CHROMEDRIVER_URL=""
         
-        # Try new Chrome for Testing API first (for newer versions)
-        if curl -s "https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_$CHROME_MAJOR_VERSION" > /dev/null 2>&1; then
-          echo "Using Chrome for Testing API..."
-          CHROMEDRIVER_VERSION=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_$CHROME_MAJOR_VERSION")
-          wget -N "https://storage.googleapis.com/chrome-for-testing-public/$CHROMEDRIVER_VERSION/linux64/chromedriver-linux64.zip"
-          unzip chromedriver-linux64.zip
-          sudo mv chromedriver-linux64/chromedriver /usr/local/bin/
-        else
-          echo "Falling back to legacy ChromeDriver..."
-          # Fallback to older stable version that usually works
-          CHROMEDRIVER_VERSION="114.0.5735.90"
-          wget -N "https://chromedriver.storage.googleapis.com/$CHROMEDRIVER_VERSION/chromedriver_linux64.zip" || {
-            # If that fails, try to find a compatible version
-            echo "Trying to find compatible ChromeDriver version..."
-            for version in "119.0.6045.105" "118.0.5993.70" "117.0.5938.92"; do
-              if wget -N "https://chromedriver.storage.googleapis.com/$version/chromedriver_linux64.zip"; then
-                break
-              fi
-            done
-          }
-          unzip chromedriver_linux64.zip
-          sudo mv chromedriver /usr/local/bin/
+        if [ "$CHROME_MAJOR" -ge "115" ]; then
+          echo "Using Chrome for Testing API for version $CHROME_MAJOR"
+          # Get latest stable version for this major version
+          STABLE_VERSION=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_STABLE" || echo "")
+          if [ ! -z "$STABLE_VERSION" ]; then
+            CHROMEDRIVER_URL="https://storage.googleapis.com/chrome-for-testing-public/${STABLE_VERSION}/linux64/chromedriver-linux64.zip"
+          fi
         fi
         
+        # Fallback to older API or specific versions
+        if [ -z "$CHROMEDRIVER_URL" ]; then
+          echo "Falling back to legacy ChromeDriver download..."
+          # Try some known working versions
+          for VERSION in "114.0.5735.90" "113.0.5672.63" "112.0.5615.49"; do
+            if curl -s --head "https://chromedriver.storage.googleapis.com/$VERSION/chromedriver_linux64.zip" | head -n 1 | grep -q "200 OK"; then
+              CHROMEDRIVER_URL="https://chromedriver.storage.googleapis.com/$VERSION/chromedriver_linux64.zip"
+              echo "Using ChromeDriver version: $VERSION"
+              break
+            fi
+          done
+        fi
+        
+        # Download and install ChromeDriver
+        if [ ! -z "$CHROMEDRIVER_URL" ]; then
+          wget -N "$CHROMEDRIVER_URL" -O chromedriver.zip
+          unzip chromedriver.zip
+          
+          # Handle different archive structures
+          if [ -f "chromedriver-linux64/chromedriver" ]; then
+            sudo mv chromedriver-linux64/chromedriver /usr/local/bin/
+          elif [ -f "chromedriver" ]; then
+            sudo mv chromedriver /usr/local/bin/
+          else
+            echo "ChromeDriver binary not found in expected locations"
+            ls -la
+            exit 1
+          fi
+        else
+          echo "Could not find suitable ChromeDriver version"
+          exit 1
+        fi
+        
+        # Set permissions
         sudo chmod +x /usr/local/bin/chromedriver
         
         # Verify installation
+        echo "Verifying Chrome installation:"
+        google-chrome --version || echo "Chrome version check failed"
+        echo "Verifying ChromeDriver installation:"
         chromedriver --version || echo "ChromeDriver version check failed"
-        google-chrome --version
+        
+        # Test Chrome headless
+        echo "Testing Chrome headless mode:"
+        timeout 10s google-chrome --headless --disable-gpu --no-sandbox --dump-dom https://www.google.com | head -n 5 || echo "Chrome headless test failed"
+        
+    - name: 🔧 Set up display server
+      run: |
+        # Start virtual display for GUI applications (backup)
+        export DISPLAY=:99
+        Xvfb :99 -screen 0 1366x768x24 > /dev/null 2>&1 &
+        sleep 2
         
     - name: 📁 Create required directories
       run: |
         mkdir -p cookies
         mkdir -p logs
+        mkdir -p /tmp/chrome-profile
         
     - name: 🍪 Prepare cookies
       run: |
@@ -97,6 +141,7 @@ jobs:
           echo "Cookies secret found, decoding..."
           echo "${{ secrets.NAUKRI_COOKIES_B64 }}" | base64 -d > cookies/naukri_cookies.json
           echo "Cookies decoded successfully"
+          echo "Cookie file size: $(wc -c < cookies/naukri_cookies.json) bytes"
         else
           echo "❌ No cookies found in secrets!"
           exit 1
@@ -119,19 +164,48 @@ jobs:
         RESUME_PATH: './resume/Nikhil_Saini_Resume.pdf'
         MODE: 'automation'
         TEST_MODE: ${{ github.event.inputs.test_mode }}
+        DISPLAY: ':99'
+        # Chrome specific environment variables
+        CHROME_BIN: '/usr/bin/google-chrome'
+        CHROMEDRIVER_PATH: '/usr/local/bin/chromedriver'
       run: |
         echo "Starting automation at $(date)"
-        python automation/naukri_cookie_uploader.py
+        echo "Environment check:"
+        echo "- Chrome: $(which google-chrome || echo 'not found')"
+        echo "- ChromeDriver: $(which chromedriver || echo 'not found')"
+        echo "- Display: $DISPLAY"
+        echo "- Python: $(python --version)"
         
-    - name: 📊 Upload logs (if failed)
-      if: failure()
+        # Kill any existing Chrome processes
+        pkill -f chrome || true
+        sleep 2
+        
+        # Run the automation with timeout
+        timeout 900s python automation/naukri_cookie_uploader.py || {
+          echo "Automation timed out or failed"
+          exit 1
+        }
+        
+    - name: 🧹 Cleanup processes
+      if: always()
+      run: |
+        # Kill Chrome processes
+        pkill -f chrome || true
+        pkill -f chromedriver || true
+        pkill -f Xvfb || true
+        sleep 2
+        
+    - name: 📊 Upload logs and screenshots
+      if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: automation-logs
+        name: automation-artifacts-${{ github.run_number }}
         path: |
           logs/
           *.log
+          *.png
         retention-days: 7
+        if-no-files-found: ignore
         
     - name: ✅ Success notification
       if: success()
@@ -147,15 +221,30 @@ jobs:
         echo "Possible causes:"
         echo "- Cookies expired (login manually and update NAUKRI_COOKIES_B64 secret)"
         echo "- Naukri website changes"
+        echo "- Chrome/ChromeDriver compatibility issues"
         echo "- Network issues"
-        echo "Check the logs above for details"
+        echo ""
+        echo "Debugging info:"
+        echo "- Chrome processes: $(pgrep -f chrome | wc -l)"
+        echo "- Available disk space: $(df -h /tmp)"
+        echo "- Memory usage: $(free -h)"
         
-    - name: 📧 Send email notification (optional)
-      if: always()
+    - name: 🔍 Debug information (on failure)
+      if: failure()
       run: |
-        # Add your email notification logic here
-        # You can use actions like action-send-mail or webhook notifications
-        echo "Status: ${{ job.status }}"
+        echo "=== System Information ==="
+        uname -a
+        echo "=== Chrome Version ==="
+        google-chrome --version || echo "Chrome not available"
+        echo "=== ChromeDriver Version ==="
+        chromedriver --version || echo "ChromeDriver not available"
+        echo "=== Python Packages ==="
+        pip list | grep -E "(selenium|undetected)"
+        echo "=== Log Files ==="
+        find logs/ -name "*.html" -exec ls -la {} \; 2>/dev/null || echo "No HTML logs"
+        find logs/ -name "*.png" -exec ls -la {} \; 2>/dev/null || echo "No screenshots"
+        echo "=== Process List ==="
+        ps aux | grep -E "(chrome|python)" || echo "No relevant processes"
 
 # Separate workflow for cookie extraction reminder
 ---
@@ -177,3 +266,5 @@ jobs:
         echo "1. Run the cookie extraction script locally"
         echo "2. Update the NAUKRI_COOKIES_B64 GitHub secret"
         echo "3. Test the automation with manual trigger"
+        echo ""
+        echo "Cookie refresh is recommended every 25-30 days to maintain login sessions."

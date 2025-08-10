@@ -1,0 +1,157 @@
+# .github/workflows/naukri-cookie-automation.yml
+name: Naukri Cookie-Based Resume Upload
+
+on:
+  schedule:
+    # 9:30 AM IST = 4:00 AM UTC
+    - cron: '30 4 * * *'
+  
+  # Manual trigger with options
+  workflow_dispatch:
+    inputs:
+      force_run:
+        description: 'Force run even if cookies might be expired'
+        required: false
+        default: 'false'
+        type: boolean
+      test_mode:
+        description: 'Run in test mode (no actual upload)'
+        required: false
+        default: 'false'
+        type: boolean
+
+jobs:
+  upload-resume:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    steps:
+    - name: 🛎️ Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: 🐍 Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+        
+    - name: 📦 Install Python dependencies
+      run: |
+        pip install --upgrade pip
+        pip install selenium undetected-chromedriver requests python-dotenv
+        
+    - name: 🌐 Install Chrome and ChromeDriver
+      run: |
+        # Install Google Chrome
+        wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+        sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list'
+        sudo apt-get update
+        sudo apt-get install -y google-chrome-stable
+        
+        # Get Chrome version
+        CHROME_VERSION=$(google-chrome --version | cut -d ' ' -f3 | cut -d '.' -f1)
+        echo "Chrome version: $CHROME_VERSION"
+        
+        # Install matching ChromeDriver
+        CHROMEDRIVER_VERSION=$(curl -s "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_$CHROME_VERSION")
+        wget -N "https://chromedriver.storage.googleapis.com/$CHROMEDRIVER_VERSION/chromedriver_linux64.zip"
+        unzip chromedriver_linux64.zip
+        sudo mv chromedriver /usr/local/bin/
+        sudo chmod +x /usr/local/bin/chromedriver
+        
+        # Verify installation
+        chromedriver --version
+        google-chrome --version
+        
+    - name: 📁 Create required directories
+      run: |
+        mkdir -p cookies
+        mkdir -p logs
+        
+    - name: 🍪 Prepare cookies
+      run: |
+        if [ ! -z "${{ secrets.NAUKRI_COOKIES_B64 }}" ]; then
+          echo "Cookies secret found, decoding..."
+          echo "${{ secrets.NAUKRI_COOKIES_B64 }}" | base64 -d > cookies/naukri_cookies.pkl
+          echo "Cookies decoded successfully"
+        else
+          echo "❌ No cookies found in secrets!"
+          echo "Please run cookie extraction first and add NAUKRI_COOKIES_B64 secret"
+          exit 1
+        fi
+        
+    - name: 📄 Verify resume file
+      run: |
+        if [ -f "resume/resume.pdf" ]; then
+          echo "✅ Resume file found: $(ls -lh resume/resume.pdf)"
+        else
+          echo "❌ Resume file not found!"
+          echo "Available files:"
+          find . -name "*.pdf" -type f
+          exit 1
+        fi
+        
+    - name: 🚀 Run Naukri automation
+      env:
+        NAUKRI_COOKIES_B64: ${{ secrets.NAUKRI_COOKIES_B64 }}
+        RESUME_PATH: './resume/resume.pdf'
+        MODE: 'automation'
+        TEST_MODE: ${{ github.event.inputs.test_mode }}
+      run: |
+        echo "Starting automation at $(date)"
+        python automation/naukri_cookie_uploader.py
+        
+    - name: 📊 Upload logs (if failed)
+      if: failure()
+      uses: actions/upload-artifact@v3
+      with:
+        name: automation-logs
+        path: |
+          logs/
+          *.log
+        retention-days: 7
+        
+    - name: ✅ Success notification
+      if: success()
+      run: |
+        echo "🎉 Resume upload completed successfully!"
+        echo "Timestamp: $(date)"
+        echo "Next scheduled run: Tomorrow at 9:30 AM IST"
+        
+    - name: ❌ Failure notification
+      if: failure()
+      run: |
+        echo "🚨 Automation failed!"
+        echo "Possible causes:"
+        echo "- Cookies expired (login manually and update NAUKRI_COOKIES_B64 secret)"
+        echo "- Naukri website changes"
+        echo "- Network issues"
+        echo "Check the logs above for details"
+        
+    - name: 📧 Send email notification (optional)
+      if: always()
+      run: |
+        # Add your email notification logic here
+        # You can use actions like action-send-mail or webhook notifications
+        echo "Status: ${{ job.status }}"
+
+# Separate workflow for cookie extraction reminder
+---
+name: Cookie Refresh Reminder
+
+on:
+  schedule:
+    # Remind to refresh cookies every 25 days
+    - cron: '0 9 */25 * *'
+  workflow_dispatch:
+
+jobs:
+  remind-cookie-refresh:
+    runs-on: ubuntu-latest
+    steps:
+    - name: 🔔 Cookie refresh reminder
+      run: |
+        echo "🍪 Time to refresh your Naukri cookies!"
+        echo "1. Run the cookie extraction script locally"
+        echo "2. Update the NAUKRI_COOKIES_B64 GitHub secret"
+        echo "3. Test the automation with manual trigger"

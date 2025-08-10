@@ -1,0 +1,27 @@
+# Logs
+*.log
+naukri_automation.log
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Selenium
+chromedriver*
+geckodriver*

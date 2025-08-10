@@ -1,0 +1,1 @@
+![Naukri Automation](https://github.com/yourusername/naukri-resume-automation/workflows/Naukri%20Resume%20Upload%20Automation/badge.svg)

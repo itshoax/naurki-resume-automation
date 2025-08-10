@@ -20,6 +20,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
 # Try to import undetected-chromedriver
+UNDETECTED_AVAILABLE = False
 try:
     import undetected_chromedriver as uc
     UNDETECTED_AVAILABLE = True

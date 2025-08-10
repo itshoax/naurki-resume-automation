@@ -171,17 +171,34 @@ class CookieBasedNaukriUploader:
         return False
 
     def _strategy_attach_cv(self):
-        """Strategy: Directly send file to #attachCV input"""
+        """Strategy: Trigger dummy button and send file to #attachCV"""
         try:
             self.driver.get("https://www.naukri.com/mnjuser/profile")
-            WebDriverWait(self.driver, 15).until(
+
+            # Wait for dummy upload button and click it (activates the file input)
+            try:
+                dummy_btn = WebDriverWait(self.driver, 10).until(
+                    EC.element_to_be_clickable((By.CSS_SELECTOR, "input.dummyUpload"))
+                )
+                dummy_btn.click()
+                logging.info("Clicked dummyUpload button to activate file input")
+            except TimeoutException:
+                logging.warning("dummyUpload button not found or not clickable")
+
+            # Wait for the file input to be ready
+            file_input = WebDriverWait(self.driver, 10).until(
                 EC.presence_of_element_located((By.ID, "attachCV"))
             )
-            file_input = self.driver.find_element(By.ID, "attachCV")
+
+            # Ensure it's interactable
+            WebDriverWait(self.driver, 10).until(
+                EC.element_to_be_clickable((By.ID, "attachCV"))
+            )
+
             file_input.send_keys(os.path.abspath(self.resume_path))
             logging.info("Sent resume file to #attachCV")
 
-            # Wait for some upload result/confirmation
+            # Wait for upload result
             try:
                 WebDriverWait(self.driver, 15).until(
                     EC.presence_of_element_located((By.ID, "results_resumeParser"))

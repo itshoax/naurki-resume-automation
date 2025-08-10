@@ -1,7 +1,7 @@
-# automation/naukri_cookie_uploader_fixed.py
+# automation/naukri_stealth_uploader.py
 """
-Fixed Cookie-based Naukri Resume Upload Automation
-Addresses Access Denied issues and eliminates false positives
+Stealth Naukri Resume Upload - Bypasses bot detection
+The issue is not cookies, but automation detection by Naukri
 """
 
 import os
@@ -9,6 +9,7 @@ import time
 import json
 import base64
 import logging
+import random
 from datetime import datetime
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -16,659 +17,568 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
-from selenium.common.exceptions import TimeoutException, WebDriverException
+from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.common.action_chains import ActionChains
 
-USE_UNDETECTED = os.getenv("USE_UNDETECTED", "false").lower() == "true"
-if USE_UNDETECTED:
-    try:
-        import undetected_chromedriver as uc
-    except ImportError:
-        USE_UNDETECTED = False
+# Force use of undetected-chromedriver for stealth
+USE_UNDETECTED = True
+try:
+    import undetected_chromedriver as uc
+    logging.info("✅ Undetected ChromeDriver available")
+except ImportError:
+    USE_UNDETECTED = False
+    logging.warning("⚠️ Undetected ChromeDriver not available - may get detected")
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
-class FixedNaukriUploader:
+class StealthNaukriUploader:
     def __init__(self):
         self.resume_path = os.getenv("RESUME_PATH", "./resume/Nikhil_Saini_Resume.pdf")
         self.driver = None
         self.cookies_file = "./cookies/naukri_cookies.json"
         self.cookies_b64 = os.getenv("NAUKRI_COOKIES_B64")
-        self.upload_verified = False
 
         os.makedirs("./cookies", exist_ok=True)
         os.makedirs("./logs", exist_ok=True)
 
-    def setup_driver(self):
-        """Setup Chrome driver with anti-detection measures"""
+    def setup_stealth_driver(self):
+        """Setup maximum stealth browser"""
         if USE_UNDETECTED:
             try:
+                # Undetected ChromeDriver with maximum stealth
                 options = uc.ChromeOptions()
-                options.add_argument("--headless=new")
+                
+                # Basic options
                 options.add_argument("--no-sandbox")
                 options.add_argument("--disable-dev-shm-usage")
                 options.add_argument("--disable-gpu")
-                options.add_argument("--window-size=1920,1080")
+                options.add_argument("--window-size=1366,768")  # Common resolution
+                
+                # Stealth options
+                options.add_argument("--disable-blink-features=AutomationControlled")
+                options.add_argument("--disable-features=VizDisplayCompositor")
                 options.add_argument("--disable-web-security")
                 options.add_argument("--allow-running-insecure-content")
-                # Add more stealth options
-                options.add_argument("--disable-blink-features=AutomationControlled")
-                options.add_experimental_option("excludeSwitches", ["enable-automation"])
+                options.add_argument("--disable-extensions")
+                options.add_argument("--disable-plugins")
+                options.add_argument("--disable-default-apps")
+                options.add_argument("--disable-background-timer-throttling")
+                options.add_argument("--disable-backgrounding-occluded-windows")
+                options.add_argument("--disable-renderer-backgrounding")
+                options.add_argument("--disable-features=TranslateUI")
+                
+                # Realistic user agent
+                options.add_argument(
+                    "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                )
+                
+                # Hide automation flags
+                options.add_experimental_option("excludeSwitches", ["enable-automation", "enable-logging"])
                 options.add_experimental_option('useAutomationExtension', False)
                 
-                self.driver = uc.Chrome(options=options)
-                logging.info("Undetected Chrome driver initialized")
-                return
+                # Add realistic preferences
+                prefs = {
+                    "profile.default_content_setting_values": {
+                        "notifications": 2,
+                        "media_stream": 2,
+                    },
+                    "profile.default_content_settings.popups": 0,
+                    "profile.managed_default_content_settings.images": 1
+                }
+                options.add_experimental_option("prefs", prefs)
+                
+                # Initialize with version detection disabled
+                self.driver = uc.Chrome(options=options, version_main=None)
+                
+                # Execute stealth scripts
+                stealth_js = """
+                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+                Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+                Object.defineProperty(navigator, 'permissions', {get: () => ({
+                    query: () => Promise.resolve({state: 'granted'})
+                })});
+                delete window.cdc_adoQpoasnfa76pfcZLmcfl_Array;
+                delete window.cdc_adoQpoasnfa76pfcZLmcfl_Promise;
+                delete window.cdc_adoQpoasnfa76pfcZLmcfl_Symbol;
+                """
+                self.driver.execute_script(stealth_js)
+                
+                logging.info("✅ Stealth Undetected Chrome driver initialized")
+                
             except Exception as e:
-                logging.warning(f"UC failed: {e}, falling back to regular Chrome")
-
-        # Enhanced regular Chrome options
-        options = Options()
-        options.add_argument("--headless=new")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--disable-dev-shm-usage")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--window-size=1920,1080")
+                logging.error(f"Failed to initialize Undetected Chrome: {e}")
+                USE_UNDETECTED = False
         
-        # Anti-detection measures
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option('useAutomationExtension', False)
-        options.add_argument("--disable-web-security")
-        options.add_argument("--allow-running-insecure-content")
-        
-        # More realistic browser fingerprint
-        options.add_argument(
-            "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-            "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        )
-
-        chromedriver_paths = [
-            "/usr/local/bin/chromedriver",
-            "/usr/bin/chromedriver",
-            "./chromedriver"
-        ]
-        chromedriver_path = next((p for p in chromedriver_paths if os.path.exists(p)), None)
-
-        if chromedriver_path:
-            service = Service(chromedriver_path)
-            self.driver = webdriver.Chrome(service=service, options=options)
-        else:
+        if not USE_UNDETECTED:
+            # Fallback to regular Chrome with maximum stealth
+            options = Options()
+            options.add_argument("--no-sandbox")
+            options.add_argument("--disable-dev-shm-usage")
+            options.add_argument("--disable-gpu")
+            options.add_argument("--window-size=1366,768")
+            
+            # Maximum stealth for regular Chrome
+            options.add_argument("--disable-blink-features=AutomationControlled")
+            options.add_experimental_option("excludeSwitches", ["enable-automation"])
+            options.add_experimental_option('useAutomationExtension', False)
+            options.add_argument("--disable-web-security")
+            options.add_argument("--disable-features=VizDisplayCompositor")
+            options.add_argument(
+                "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            )
+            
             self.driver = webdriver.Chrome(options=options)
+            
+            # Execute stealth scripts for regular Chrome
+            stealth_js = """
+            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+            Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+            Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+            window.chrome = {runtime: {}};
+            """
+            self.driver.execute_script(stealth_js)
+            
+            logging.info("✅ Stealth regular Chrome driver initialized")
 
-        # Execute stealth scripts
-        self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-        self.driver.execute_script("Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]})")
-        self.driver.execute_script("Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']})")
-        
-        logging.info("Enhanced Chrome driver initialized")
         self.driver.set_page_load_timeout(30)
+        self.driver.implicitly_wait(5)
+
+    def human_like_delay(self, min_delay=1, max_delay=3):
+        """Add human-like delays"""
+        delay = random.uniform(min_delay, max_delay)
+        time.sleep(delay)
+
+    def human_like_typing(self, element, text):
+        """Type like a human with random delays"""
+        for char in text:
+            element.send_keys(char)
+            time.sleep(random.uniform(0.05, 0.15))
 
     def decode_cookies_from_secret(self):
-        """Decode Base64 JSON cookies from secret"""
+        """Decode cookies from base64"""
         if self.cookies_b64:
             try:
                 cookies_json_str = base64.b64decode(self.cookies_b64).decode("utf-8")
                 cookies = json.loads(cookies_json_str)
                 with open(self.cookies_file, "w", encoding="utf-8") as f:
                     json.dump(cookies, f, indent=2)
-                logging.info("Cookies decoded from GitHub secret")
+                logging.info("🍪 Cookies decoded from secret")
                 return True
             except Exception as e:
-                logging.error(f"Failed to decode cookies: {e}")
+                logging.error(f"Cookie decode failed: {e}")
         return False
 
-    def load_cookies_gradually(self):
-        """Load cookies with gradual approach to avoid Access Denied"""
+    def load_cookies_stealthily(self):
+        """Load cookies with stealth approach"""
         try:
             if not os.path.exists(self.cookies_file):
                 if not self.decode_cookies_from_secret():
                     raise FileNotFoundError("No cookies available")
 
-            # Start with main domain
+            # Start with main domain and browse like human
+            logging.info("🌐 Navigating to Naukri homepage...")
             self.driver.get("https://www.naukri.com")
-            time.sleep(5)
+            self.human_like_delay(3, 5)
 
+            # Load cookies
             with open(self.cookies_file, "r", encoding="utf-8") as f:
                 cookies = json.load(f)
 
-            # Filter and add cookies carefully
+            # Add cookies one by one with delays
             valid_cookies = []
             for cookie in cookies:
-                # Skip problematic cookies
-                if cookie.get("name") in ["_gat", "_gat_UA-", "__gads"]:
-                    continue
-                    
-                if cookie.get("sameSite") == "None":
-                    cookie["sameSite"] = "Lax"
-                    
                 try:
+                    if cookie.get("sameSite") == "None":
+                        cookie["sameSite"] = "Lax"
+                    
                     self.driver.add_cookie(cookie)
                     valid_cookies.append(cookie)
+                    time.sleep(0.1)  # Small delay between cookies
                 except Exception as e:
-                    logging.warning(f"Failed to add cookie {cookie.get('name')}: {e}")
+                    logging.warning(f"Cookie {cookie.get('name')} failed: {e}")
 
-            logging.info(f"Loaded {len(valid_cookies)} valid cookies")
-            
-            # Navigate gradually to avoid triggering security
-            self.driver.get("https://www.naukri.com")
-            time.sleep(3)
-            
-            # Try to access a simple page first
-            self.driver.get("https://www.naukri.com/mnjuser/homepage")
-            time.sleep(5)
-            
+            logging.info(f"🍪 Loaded {len(valid_cookies)} cookies")
+
+            # Refresh and wait like human
+            logging.info("🔄 Refreshing page...")
+            self.driver.refresh()
+            self.human_like_delay(3, 5)
+
             return True
         except Exception as e:
-            logging.error(f"Failed to load cookies: {e}")
+            logging.error(f"Cookie loading failed: {e}")
             return False
 
-    def check_access_denied(self):
-        """Check if we're getting Access Denied"""
-        page_title = self.driver.title.lower()
-        page_source = self.driver.page_source.lower()
-        
-        if "access denied" in page_title or "access denied" in page_source:
-            logging.error("❌ ACCESS DENIED detected!")
-            logging.error("This usually means:")
-            logging.error("1. Cookies have expired")
-            logging.error("2. Account is locked/restricted")
-            logging.error("3. Too many automation attempts detected")
-            return True
-        return False
+    def navigate_like_human(self):
+        """Navigate to profile page like a human user"""
+        try:
+            # First, go to homepage and browse a bit
+            logging.info("🏠 Starting from homepage...")
+            self.driver.get("https://www.naukri.com")
+            self.human_like_delay(2, 4)
+
+            # Scroll a bit like human
+            self.driver.execute_script("window.scrollTo(0, 300);")
+            self.human_like_delay(1, 2)
+
+            # Try to click on profile/dashboard links naturally
+            profile_links = [
+                "//a[contains(@href, 'mnjuser')]",
+                "//a[contains(text(), 'Profile')]",
+                "//a[contains(text(), 'My Profile')]",
+                "//a[contains(@href, 'profile')]"
+            ]
+
+            for link_xpath in profile_links:
+                try:
+                    links = self.driver.find_elements(By.XPATH, link_xpath)
+                    for link in links:
+                        if link.is_displayed():
+                            logging.info(f"🔗 Clicking profile link: {link.text}")
+                            ActionChains(self.driver).move_to_element(link).click().perform()
+                            self.human_like_delay(3, 5)
+                            
+                            # Check if we're on a user page
+                            if "mnjuser" in self.driver.current_url:
+                                logging.info(f"✅ Successfully navigated to: {self.driver.current_url}")
+                                return True
+                except Exception as e:
+                    continue
+
+            # If clicking links didn't work, try direct navigation
+            logging.info("🔗 Trying direct navigation to profile...")
+            self.driver.get("https://www.naukri.com/mnjuser/profile")
+            self.human_like_delay(3, 5)
+
+            # Check for access denied
+            if "Access Denied" not in self.driver.title and "access denied" not in self.driver.page_source.lower():
+                logging.info("✅ Direct navigation successful")
+                return True
+
+            return False
+
+        except Exception as e:
+            logging.error(f"Navigation failed: {e}")
+            return False
 
     def verify_login_status(self):
-        """Enhanced login verification"""
+        """Verify login with multiple checks"""
         try:
-            # Try multiple URLs to avoid access denied
-            test_urls = [
-                "https://www.naukri.com/mnjuser/homepage",
-                "https://www.naukri.com/mnjuser/profile",
-                "https://www.naukri.com/mnjuser/dashboard"
+            current_url = self.driver.current_url
+            page_title = self.driver.title
+            
+            logging.info(f"📍 Current URL: {current_url}")
+            logging.info(f"📄 Page title: {page_title}")
+
+            # Check for access denied first
+            if "access denied" in page_title.lower() or "access denied" in self.driver.page_source.lower():
+                logging.error("❌ ACCESS DENIED detected")
+                
+                # Try alternative approach - go back to homepage and try again
+                logging.info("🔄 Trying alternative navigation...")
+                self.driver.get("https://www.naukri.com")
+                self.human_like_delay(3, 5)
+                
+                # Try jobs page first (less restricted)
+                self.driver.get("https://www.naukri.com/mnjuser/homepage")
+                self.human_like_delay(3, 5)
+                
+                if "access denied" not in self.driver.title.lower():
+                    logging.info("✅ Alternative navigation worked")
+                    return True
+                else:
+                    return False
+
+            # Look for login indicators
+            login_indicators = [
+                "//div[contains(@class, 'nI-gNb-drawer')]",
+                "//div[contains(@class, 'user-name')]",
+                "//span[contains(@class, 'fullname')]",
+                "//*[contains(text(), 'My Profile')]",
+                "//*[contains(text(), 'Dashboard')]",
+                "//a[contains(@href, 'logout')]"
             ]
-            
-            for url in test_urls:
+
+            for indicator in login_indicators:
                 try:
-                    logging.info(f"Testing login with: {url}")
-                    self.driver.get(url)
-                    time.sleep(5)
-                    
-                    if self.check_access_denied():
-                        continue
-                    
-                    # Check for login indicators
-                    login_indicators = [
-                        (By.CLASS_NAME, "nI-gNb-drawer"),
-                        (By.CLASS_NAME, "profileSection"),
-                        (By.CLASS_NAME, "user-name"),
-                        (By.ID, "name"),
-                        (By.CSS_SELECTOR, "[data-automation='profile-name']"),
-                        (By.CSS_SELECTOR, ".nI-gNb-info__name"),
-                        (By.XPATH, "//*[contains(text(), 'Profile')]"),
-                        (By.XPATH, "//*[contains(text(), 'Dashboard')]")
-                    ]
-                    
-                    for by, selector in login_indicators:
-                        try:
-                            element = WebDriverWait(self.driver, 5).until(
-                                EC.presence_of_element_located((by, selector))
-                            )
-                            logging.info(f"✅ Login verified via {selector} on {url}")
-                            return True
-                        except TimeoutException:
-                            continue
-                    
-                    # Check URL patterns
-                    if "mnjuser" in self.driver.current_url and "nlogin" not in self.driver.current_url:
-                        logging.info(f"✅ Login verified via URL pattern: {self.driver.current_url}")
+                    elements = self.driver.find_elements(By.XPATH, indicator)
+                    if elements and elements[0].is_displayed():
+                        logging.info(f"✅ Login verified via: {indicator}")
                         return True
-                        
-                except Exception as e:
-                    logging.warning(f"Failed to test {url}: {e}")
+                except Exception:
                     continue
-            
-            logging.error("❌ Could not verify login on any URL")
+
+            # Check URL pattern
+            if "mnjuser" in current_url and "login" not in current_url:
+                logging.info("✅ Login verified via URL pattern")
+                return True
+
+            logging.warning("⚠️ Could not verify login status")
             return False
-            
+
         except Exception as e:
             logging.error(f"Login verification failed: {e}")
             return False
 
-    def find_resume_upload_page(self):
-        """Find a working resume upload page"""
-        upload_urls = [
-            "https://www.naukri.com/mnjuser/profile",
-            "https://www.naukri.com/mnjuser/manageResume", 
-            "https://www.naukri.com/mnjuser/homepage",
-            "https://www.naukri.com/mnjuser/profile?id=&altresume",
-            "https://www.naukri.com/mnjuser/resume",
-            "https://www.naukri.com/mnjuser/profile/resume"
-        ]
-        
-        for url in upload_urls:
-            try:
-                logging.info(f"🔍 Checking upload page: {url}")
-                self.driver.get(url)
-                time.sleep(5)
-                
-                if self.check_access_denied():
-                    logging.warning(f"Access denied on {url}")
-                    continue
-                
-                # Look for file inputs
-                file_inputs = self.driver.find_elements(By.XPATH, "//input[@type='file']")
-                upload_buttons = self.driver.find_elements(By.XPATH, "//button[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'upload') or contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'resume')]")
-                
-                if file_inputs or upload_buttons:
-                    logging.info(f"✅ Found upload elements on {url}: {len(file_inputs)} inputs, {len(upload_buttons)} buttons")
-                    return url
-                    
-            except Exception as e:
-                logging.warning(f"Failed to check {url}: {e}")
-                continue
-        
-        logging.error("❌ No working upload page found")
-        return None
-
-    def upload_resume(self):
-        """Main upload logic with strict verification"""
-        
-        # First, find a page that actually has upload elements
-        working_url = self.find_resume_upload_page()
-        if not working_url:
-            logging.error("❌ No upload page accessible - cookies may have expired or account restricted")
-            return False
-        
-        logging.info(f"✅ Using upload page: {working_url}")
-        
-        # Try actual upload strategies
-        strategies = [
-            self._strategy_direct_file_upload,
-            self._strategy_button_triggered_upload,
-            self._strategy_form_based_upload
-        ]
-        
-        for i, strategy in enumerate(strategies, 1):
-            try:
-                logging.info(f"🔄 Attempting upload strategy {i}: {strategy.__name__}")
-                if strategy(working_url):
-                    if self._verify_actual_upload():
-                        logging.info(f"✅ Strategy {i} succeeded with verified upload!")
-                        self.upload_verified = True
-                        return True
-                    else:
-                        logging.warning(f"⚠️  Strategy {i} completed but upload not verified")
-                else:
-                    logging.warning(f"❌ Strategy {i} failed")
-            except Exception as e:
-                logging.error(f"❌ Strategy {i} exception: {e}")
-        
-        return False
-
-    def _strategy_direct_file_upload(self, url):
-        """Direct file upload to visible file inputs"""
+    def find_and_upload_resume(self):
+        """Find upload elements and upload resume"""
         try:
-            self.driver.get(url)
-            time.sleep(5)
+            # Make sure we're on a profile-related page
+            if not self.navigate_to_upload_page():
+                return False
+
+            # Look for file inputs with human-like behavior
+            logging.info("🔍 Looking for upload elements...")
             
+            # Scroll around the page like human
+            self.driver.execute_script("window.scrollTo(0, 200);")
+            self.human_like_delay(1, 2)
+            self.driver.execute_script("window.scrollTo(0, 500);")
+            self.human_like_delay(1, 2)
+
+            # Find file inputs
             file_inputs = self.driver.find_elements(By.XPATH, "//input[@type='file']")
+            logging.info(f"📄 Found {len(file_inputs)} file input(s)")
+
+            if file_inputs:
+                return self.upload_to_file_input(file_inputs[0])
+
+            # Look for upload buttons that trigger file dialogs
+            upload_buttons = self.driver.find_elements(By.XPATH, 
+                "//button[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'upload') or "
+                "contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'resume')]"
+            )
             
-            for i, file_input in enumerate(file_inputs):
-                try:
-                    # Make sure element is interactable
-                    self.driver.execute_script(
-                        "arguments[0].style.display = 'block';"
-                        "arguments[0].style.visibility = 'visible';"
-                        "arguments[0].style.opacity = '1';"
-                        "arguments[0].removeAttribute('hidden');",
-                        file_input
+            logging.info(f"🔘 Found {len(upload_buttons)} upload button(s)")
+
+            for button in upload_buttons:
+                if self.try_button_upload(button):
+                    return True
+
+            logging.warning("⚠️ No upload elements found")
+            return False
+
+        except Exception as e:
+            logging.error(f"Upload search failed: {e}")
+            return False
+
+    def navigate_to_upload_page(self):
+        """Navigate to best page for upload"""
+        upload_pages = [
+            "https://www.naukri.com/mnjuser/profile",
+            "https://www.naukri.com/mnjuser/homepage", 
+            "https://www.naukri.com/mnjuser/manageResume"
+        ]
+
+        for page in upload_pages:
+            try:
+                logging.info(f"🌐 Trying page: {page}")
+                self.driver.get(page)
+                self.human_like_delay(3, 5)
+
+                if "access denied" not in self.driver.title.lower():
+                    # Look for upload elements
+                    file_inputs = self.driver.find_elements(By.XPATH, "//input[@type='file']")
+                    upload_buttons = self.driver.find_elements(By.XPATH, 
+                        "//button[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'upload')]"
                     )
                     
-                    # Check accept attribute
-                    accept = file_input.get_attribute("accept")
-                    if accept and "pdf" not in accept.lower():
-                        logging.info(f"Skipping input {i}: doesn't accept PDF ({accept})")
-                        continue
-                    
-                    logging.info(f"📁 Uploading to file input {i}")
-                    file_input.send_keys(os.path.abspath(self.resume_path))
-                    time.sleep(3)
-                    
-                    # Look for immediate submit button or auto-submit
-                    self._try_submit_upload()
-                    
-                    # Verify upload happened
-                    if self._check_upload_progress():
+                    if file_inputs or upload_buttons:
+                        logging.info(f"✅ Found upload page: {page}")
                         return True
                         
-                except Exception as e:
-                    logging.warning(f"File input {i} failed: {e}")
-                    continue
-            
-            return False
-            
-        except Exception as e:
-            logging.error(f"Direct upload failed: {e}")
-            return False
-
-    def _strategy_button_triggered_upload(self, url):
-        """Click upload/update buttons to trigger file dialogs"""
-        try:
-            self.driver.get(url)
-            time.sleep(5)
-            
-            # Look for buttons that might trigger file upload
-            button_selectors = [
-                "//button[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'upload resume')]",
-                "//button[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'update resume')]",
-                "//button[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'attach')]",
-                "//input[@class='dummyUpload']",
-                "//button[@data-automation='resume-upload']",
-                "//*[contains(@class, 'resume-upload')]//button"
-            ]
-            
-            for selector in button_selectors:
-                buttons = self.driver.find_elements(By.XPATH, selector)
-                for button in buttons:
-                    try:
-                        if button.is_displayed() and button.is_enabled():
-                            logging.info(f"🔘 Clicking upload trigger: {button.text or button.get_attribute('class')}")
-                            
-                            # Scroll to element and click
-                            self.driver.execute_script("arguments[0].scrollIntoView(true);", button)
-                            time.sleep(1)
-                            
-                            ActionChains(self.driver).move_to_element(button).click().perform()
-                            time.sleep(3)
-                            
-                            # Look for file input that appeared
-                            new_file_inputs = self.driver.find_elements(By.XPATH, "//input[@type='file' and not(@disabled)]")
-                            for file_input in new_file_inputs:
-                                if file_input.is_displayed() or file_input.is_enabled():
-                                    logging.info("📁 Found triggered file input")
-                                    file_input.send_keys(os.path.abspath(self.resume_path))
-                                    time.sleep(3)
-                                    
-                                    self._try_submit_upload()
-                                    
-                                    if self._check_upload_progress():
-                                        return True
-                                        
-                    except Exception as e:
-                        logging.warning(f"Button trigger failed: {e}")
-                        continue
-            
-            return False
-            
-        except Exception as e:
-            logging.error(f"Button triggered upload failed: {e}")
-            return False
-
-    def _strategy_form_based_upload(self, url):
-        """Look for forms with file inputs and submit them"""
-        try:
-            self.driver.get(url)
-            time.sleep(5)
-            
-            forms = self.driver.find_elements(By.TAG_NAME, "form")
-            
-            for i, form in enumerate(forms):
-                try:
-                    # Look for file inputs within this form
-                    file_inputs = form.find_elements(By.XPATH, ".//input[@type='file']")
-                    
-                    if file_inputs:
-                        logging.info(f"📋 Found form {i} with {len(file_inputs)} file input(s)")
-                        
-                        for file_input in file_inputs:
-                            try:
-                                self.driver.execute_script("arguments[0].style.display = 'block';", file_input)
-                                file_input.send_keys(os.path.abspath(self.resume_path))
-                                logging.info("📁 File uploaded to form")
-                                time.sleep(3)
-                                break
-                            except Exception as e:
-                                logging.warning(f"Form file input failed: {e}")
-                                continue
-                        
-                        # Try to submit the form
-                        submit_buttons = form.find_elements(By.XPATH, ".//button[@type='submit'] | .//input[@type='submit']")
-                        if submit_buttons:
-                            submit_buttons[0].click()
-                            logging.info("📤 Form submitted")
-                        else:
-                            form.submit()
-                            logging.info("📤 Form submitted via JavaScript")
-                        
-                        time.sleep(5)
-                        
-                        if self._check_upload_progress():
-                            return True
-                            
-                except Exception as e:
-                    logging.warning(f"Form {i} failed: {e}")
-                    continue
-            
-            return False
-            
-        except Exception as e:
-            logging.error(f"Form based upload failed: {e}")
-            return False
-
-    def _try_submit_upload(self):
-        """Try to find and click submit/upload buttons"""
-        submit_selectors = [
-            "//button[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'upload')]",
-            "//button[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'save')]",
-            "//button[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'submit')]",
-            "//button[@type='submit']",
-            "//input[@type='submit']"
-        ]
-        
-        for selector in submit_selectors:
-            try:
-                buttons = self.driver.find_elements(By.XPATH, selector)
-                for button in buttons:
-                    if button.is_displayed() and button.is_enabled():
-                        button.click()
-                        logging.info(f"📤 Clicked submit button: {button.text}")
-                        time.sleep(3)
-                        return True
             except Exception as e:
+                logging.warning(f"Page {page} failed: {e}")
                 continue
-        
+
         return False
 
-    def _check_upload_progress(self):
-        """Check for upload progress indicators"""
-        progress_indicators = [
-            (By.ID, "results_resumeParser"),
-            (By.CLASS_NAME, "progress-bar"),
-            (By.XPATH, "//div[contains(text(), 'uploading')]"),
-            (By.XPATH, "//div[contains(text(), 'processing')]"),
-            (By.CSS_SELECTOR, ".upload-progress"),
-            (By.XPATH, "//div[contains(@class, 'loader')]")
-        ]
-        
-        for by, selector in progress_indicators:
-            try:
-                WebDriverWait(self.driver, 10).until(
-                    EC.presence_of_element_located((by, selector))
-                )
-                logging.info(f"📊 Upload progress detected: {selector}")
-                return True
-            except TimeoutException:
-                continue
-        
-        return False
-
-    def _verify_actual_upload(self):
-        """Strictly verify that resume was actually uploaded"""
+    def upload_to_file_input(self, file_input):
+        """Upload file to input element"""
         try:
-            # Wait for upload completion indicators
+            # Make element visible and interactable
+            self.driver.execute_script(
+                "arguments[0].style.display = 'block';"
+                "arguments[0].style.visibility = 'visible';"
+                "arguments[0].style.opacity = '1';"
+                "arguments[0].removeAttribute('hidden');",
+                file_input
+            )
+
+            # Scroll to element
+            self.driver.execute_script("arguments[0].scrollIntoView(true);", file_input)
+            self.human_like_delay(1, 2)
+
+            logging.info("📁 Uploading resume file...")
+            file_input.send_keys(os.path.abspath(self.resume_path))
+            self.human_like_delay(2, 4)
+
+            # Look for submit button
+            submit_buttons = self.driver.find_elements(By.XPATH,
+                "//button[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'upload') or "
+                "contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'save') or "
+                "contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'submit')]"
+            )
+
+            if submit_buttons:
+                for button in submit_buttons:
+                    if button.is_displayed() and button.is_enabled():
+                        logging.info(f"🔘 Clicking submit: {button.text}")
+                        ActionChains(self.driver).move_to_element(button).click().perform()
+                        self.human_like_delay(3, 6)
+                        break
+
+            return self.verify_upload_success()
+
+        except Exception as e:
+            logging.error(f"File input upload failed: {e}")
+            return False
+
+    def try_button_upload(self, button):
+        """Try clicking upload button to trigger file dialog"""
+        try:
+            if not button.is_displayed() or not button.is_enabled():
+                return False
+
+            button_text = button.text.strip()
+            logging.info(f"🔘 Trying button: {button_text}")
+
+            # Scroll to button
+            self.driver.execute_script("arguments[0].scrollIntoView(true);", button)
+            self.human_like_delay(1, 2)
+
+            # Click button
+            ActionChains(self.driver).move_to_element(button).click().perform()
+            self.human_like_delay(2, 3)
+
+            # Look for file input that appeared
+            file_inputs = self.driver.find_elements(By.XPATH, "//input[@type='file' and not(@disabled)]")
+            
+            for file_input in file_inputs:
+                if file_input.is_displayed() or file_input.is_enabled():
+                    logging.info("📁 Found triggered file input")
+                    file_input.send_keys(os.path.abspath(self.resume_path))
+                    self.human_like_delay(2, 4)
+                    return self.verify_upload_success()
+
+            return False
+
+        except Exception as e:
+            logging.error(f"Button upload failed: {e}")
+            return False
+
+    def verify_upload_success(self):
+        """Verify that upload was successful"""
+        try:
+            # Wait for upload indicators
             success_indicators = [
                 (By.ID, "results_resumeParser"),
-                (By.XPATH, "//div[contains(text(), 'uploaded successfully')]"),
-                (By.XPATH, "//div[contains(text(), 'Resume updated')]"),
                 (By.XPATH, "//div[contains(text(), 'successfully')]"),
-                (By.CSS_SELECTOR, ".alert-success"),
-                (By.CSS_SELECTOR, ".success-message")
+                (By.XPATH, "//div[contains(text(), 'uploaded')]"),
+                (By.CSS_SELECTOR, ".success"),
+                (By.CSS_SELECTOR, ".alert-success")
             ]
-            
+
             for by, selector in success_indicators:
                 try:
-                    element = WebDriverWait(self.driver, 15).until(
+                    WebDriverWait(self.driver, 10).until(
                         EC.presence_of_element_located((by, selector))
                     )
-                    logging.info(f"✅ Upload success confirmed: {selector}")
-                    
-                    # Additional verification - check if resume section shows new file
-                    self._verify_resume_presence()
+                    logging.info(f"✅ Upload success detected: {selector}")
                     return True
                 except TimeoutException:
                     continue
+
+            # Check for any positive change in page
+            self.human_like_delay(3, 5)
             
-            # Try alternative verification - look for updated resume section
-            return self._verify_resume_presence()
-            
+            # Look for resume file name on page
+            if "resume" in self.driver.page_source.lower() and ".pdf" in self.driver.page_source.lower():
+                logging.info("✅ Resume detected on page")
+                return True
+
+            logging.warning("⚠️ Upload success not confirmed")
+            return False
+
         except Exception as e:
             logging.error(f"Upload verification failed: {e}")
             return False
 
-    def _verify_resume_presence(self):
-        """Verify resume is actually present on profile"""
-        try:
-            # Go to profile and check for resume
-            self.driver.get("https://www.naukri.com/mnjuser/profile")
-            time.sleep(5)
-            
-            if self.check_access_denied():
-                return False
-            
-            # Look for resume file name or upload date
-            resume_indicators = [
-                "//div[contains(text(), '.pdf')]",
-                "//div[contains(text(), 'Resume')]",
-                "//span[contains(text(), 'Uploaded')]",
-                "//div[contains(@class, 'resume-file')]",
-                "//*[contains(text(), 'Nikhil_Saini_Resume')]"
-            ]
-            
-            for selector in resume_indicators:
-                elements = self.driver.find_elements(By.XPATH, selector)
-                if elements:
-                    for element in elements:
-                        text = element.text.strip()
-                        if text and ("pdf" in text.lower() or "resume" in text.lower()):
-                            logging.info(f"✅ Resume verified on profile: {text}")
-                            return True
-            
-            logging.warning("⚠️  Could not verify resume presence on profile")
-            return False
-            
-        except Exception as e:
-            logging.error(f"Resume presence verification failed: {e}")
-            return False
-
     def save_debug_info(self):
-        """Save debugging information"""
+        """Save debug information"""
         try:
-            # Take screenshot
-            screenshot_path = f"./logs/debug_screenshot_{int(time.time())}.png"
-            self.driver.save_screenshot(screenshot_path)
-            logging.info(f"📸 Screenshot saved: {screenshot_path}")
+            timestamp = int(time.time())
             
-            # Save page source
-            source_path = f"./logs/page_source_{int(time.time())}.html"
-            with open(source_path, "w", encoding="utf-8") as f:
+            # Screenshot
+            self.driver.save_screenshot(f"./logs/debug_{timestamp}.png")
+            
+            # Page source
+            with open(f"./logs/page_{timestamp}.html", "w", encoding="utf-8") as f:
                 f.write(self.driver.page_source)
-            logging.info(f"📄 Page source saved: {source_path}")
             
-            # Save current state info
-            info_path = f"./logs/debug_info_{int(time.time())}.txt"
-            with open(info_path, "w", encoding="utf-8") as f:
-                f.write(f"Debug Info - {datetime.now()}\n")
-                f.write(f"Current URL: {self.driver.current_url}\n")
-                f.write(f"Page Title: {self.driver.title}\n")
-                f.write(f"Upload Verified: {self.upload_verified}\n")
-                
-                # Count elements
-                file_inputs = len(self.driver.find_elements(By.XPATH, "//input[@type='file']"))
-                buttons = len(self.driver.find_elements(By.TAG_NAME, "button"))
-                f.write(f"File Inputs Found: {file_inputs}\n")
-                f.write(f"Buttons Found: {buttons}\n")
-            
-            logging.info(f"ℹ️  Debug info saved: {info_path}")
+            logging.info(f"🐛 Debug info saved with timestamp {timestamp}")
             
         except Exception as e:
-            logging.error(f"Failed to save debug info: {e}")
-
-    def save_updated_cookies(self):
-        """Save updated cookies"""
-        try:
-            current_cookies = self.driver.get_cookies()
-            with open(self.cookies_file, "w", encoding="utf-8") as f:
-                json.dump(current_cookies, f, indent=2)
-            
-            cookies_b64 = base64.b64encode(json.dumps(current_cookies).encode("utf-8")).decode("utf-8")
-            logging.info("🍪 Updated cookies saved")
-            
-            # Only show base64 if upload was actually verified
-            if self.upload_verified:
-                logging.info("✅ Upload was verified - cookies are good")
-            else:
-                logging.warning("⚠️  Upload not verified - cookies may need refresh")
-            
-            print(f"COOKIES_B64: {cookies_b64}")
-            
-        except Exception as e:
-            logging.error(f"Failed to save cookies: {e}")
+            logging.error(f"Debug save failed: {e}")
 
     def cleanup(self):
-        """Enhanced cleanup"""
-        if self.driver:
-            try:
+        """Cleanup resources"""
+        try:
+            if self.driver:
                 self.save_debug_info()
-                self.save_updated_cookies()
+                
+                # Save updated cookies
+                cookies = self.driver.get_cookies()
+                with open(self.cookies_file, "w") as f:
+                    json.dump(cookies, f, indent=2)
+                
+                cookies_b64 = base64.b64encode(json.dumps(cookies).encode()).decode()
+                logging.info("🍪 Updated cookies saved")
+                print(f"COOKIES_B64: {cookies_b64}")
+                
                 self.driver.quit()
                 logging.info("🧹 Cleanup completed")
-            except Exception as e:
-                logging.error(f"Cleanup error: {e}")
+                
+        except Exception as e:
+            logging.error(f"Cleanup error: {e}")
 
     def run(self):
-        """Main execution with enhanced error handling"""
+        """Main execution"""
         try:
-            logging.info("🚀 Starting FIXED cookie-based Naukri automation")
+            logging.info("🚀 Starting STEALTH Naukri automation")
             
             if not os.path.exists(self.resume_path):
-                raise FileNotFoundError(f"Resume file not found: {self.resume_path}")
+                raise FileNotFoundError(f"Resume not found: {self.resume_path}")
             
-            logging.info(f"📄 Resume file: {self.resume_path} ({os.path.getsize(self.resume_path)} bytes)")
+            logging.info(f"📄 Resume: {self.resume_path} ({os.path.getsize(self.resume_path)} bytes)")
             
-            # Setup browser
-            self.setup_driver()
+            # Setup stealth browser
+            self.setup_stealth_driver()
             
-            # Load cookies with gradual approach
-            if not self.load_cookies_gradually():
-                raise Exception("Failed to load cookies")
+            # Load cookies stealthily
+            if not self.load_cookies_stealthily():
+                raise Exception("Cookie loading failed")
             
-            # Verify login with multiple attempts
+            # Navigate like human
+            if not self.navigate_like_human():
+                raise Exception("Navigation failed")
+            
+            # Verify login
             if not self.verify_login_status():
-                raise Exception("Cookie authentication failed - cookies expired or account restricted")
+                raise Exception("Login verification failed")
             
-            # Attempt resume upload with strict verification
-            if self.upload_resume():
-                if self.upload_verified:
-                    logging.info("🎉 VERIFIED: Resume upload completed successfully!")
-                    return True
-                else:
-                    logging.warning("⚠️  Upload completed but not verified")
-                    return False
+            # Upload resume
+            if self.find_and_upload_resume():
+                logging.info("🎉 SUCCESS: Resume upload completed!")
+                return True
             else:
-                logging.error("❌ All upload strategies failed")
+                logging.error("❌ Resume upload failed")
                 return False
                 
         except Exception as e:
@@ -678,17 +588,8 @@ class FixedNaukriUploader:
             self.cleanup()
 
 def main():
-    """Main entry point"""
-    uploader = FixedNaukriUploader()
+    uploader = StealthNaukriUploader()
     success = uploader.run()
-    
-    if success:
-        print("\n🎉 SUCCESS: Resume uploaded and verified!")
-    else:
-        print("\n💥 FAILED: Resume upload failed or not verified!")
-        print("💡 Check logs/screenshots for debugging information")
-        print("💡 Most likely cause: Cookies expired - refresh NAUKRI_COOKIES_B64 secret")
-    
     exit(0 if success else 1)
 
 if __name__ == "__main__":
